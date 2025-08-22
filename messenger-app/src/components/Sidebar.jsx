@@ -1,16 +1,5 @@
 import React from 'react';
 
-/**
- * Компонент боковой панели для отображения списка чатов и адресной книги
- * @param {Object} props - Свойства компонента
- * @param {Array} props.chats - Список чатов
- * @param {Array} props.users - Список пользователей
- * @param {Object} props.selectedChat - Текущий выбранный чат
- * @param {boolean} props.showAddressBook - Флаг отображения адресной книги
- * @param {Function} props.setShowAddressBook - Установка флага адресной книги
- * @param {Function} props.setSelectedChat - Установка текущего чата
- * @param {Function} props.createPrivateChat - Создание приватного чата
- */
 const Sidebar = ({
   chats,
   users,
@@ -20,19 +9,11 @@ const Sidebar = ({
   setSelectedChat,
   createPrivateChat,
 }) => {
-  /**
-   * Обработка клика по чату
-   * @param {Object} chat - Чат
-   */
   const handleChatClick = (chat) => {
     setSelectedChat(chat);
     console.log('Выбран чат:', chat.chatId);
   };
 
-  /**
-   * Обработка клика по пользователю для создания чата
-   * @param {string} userId - ID пользователя
-   */
   const handleUserClick = (userId) => {
     createPrivateChat(userId);
   };
@@ -62,15 +43,21 @@ const Sidebar = ({
           </div>
         ) : (
           <div>
-            {chats.map((chat) => (
-              <div
-                key={chat.chatId} // Уникальный ключ по chatId
-                className={`px-4 py-2 hover:bg-gray-100 cursor-pointer ${selectedChat.chatId === chat.chatId ? 'bg-blue-100' : ''}`}
-                onClick={() => handleChatClick(chat)}
-              >
-                {chat.name || chat.chatId}
-              </div>
-            ))}
+            {chats.length > 0 ? (
+              chats.map((chat) => (
+                <div
+                  key={chat.chatId}
+                  className={`px-4 py-2 hover:bg-gray-100 cursor-pointer ${
+                    selectedChat && selectedChat.chatId === chat.chatId ? 'bg-blue-100' : ''
+                  }`}
+                  onClick={() => handleChatClick(chat)}
+                >
+                  {chat.name || chat.chatId}
+                </div>
+              ))
+            ) : (
+              <div className="px-4 py-2 text-gray-500">Нет доступных чатов</div>
+            )}
           </div>
         )}
       </div>

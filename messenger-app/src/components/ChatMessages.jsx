@@ -17,13 +17,16 @@ const ChatMessages = ({ user, selectedChat, messages, selectedMessages, setConte
     if (selectedChat && !messages[selectedChat.chatId]) {
       console.warn(`Сообщения для чата ${selectedChat.chatId} отсутствуют в состоянии`);
     }
+    // Прокрутка к последнему сообщению
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [selectedChat, messages]);
 
   return (
     <>
       {selectedChat ? (
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col-reverse scroll-container">
-          <div ref={messagesEndRef} />
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col scroll-container">
           {(messages[selectedChat.chatId] || []).map((msg, index) => (
             <div
               key={msg._id || `temp-${index}`}
@@ -59,6 +62,7 @@ const ChatMessages = ({ user, selectedChat, messages, selectedMessages, setConte
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center text-gray-500">

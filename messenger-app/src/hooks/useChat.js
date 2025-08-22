@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
+import { jwtDecode } from 'jwt-decode';
+import { toast } from 'react-toastify';
 
-const API_URL = 'http://10.185.101.19:8080';
+const API_URL = import.meta.env.VITE_API_URL || 'http://10.185.101.19:8080';
 const socket = io(API_URL, { autoConnect: false });
 
 const useChat = () => {
@@ -10,7 +12,7 @@ const useChat = () => {
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [messages, setMessages] = useState({});
   const [input, setInput] = useState('');
-  const [selectedChat, setSelectedChat] = useState({ chatId: 'Общий', type: 'group', name: 'Общий', participants: [] });
+  const [selectedChat, setSelectedChat] = useState(null);
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     username: '',
@@ -66,7 +68,7 @@ const useChat = () => {
   useEffect(() => {
     if (token) {
       try {
-        const decoded = JSON.parse(atob(token.split('.')[1]));
+        const decoded = jwtDecode(token);
         console.log('Декодированный токен:', decoded);
         setUser(decoded.username);
         setUserId(decoded.userId);
@@ -76,29 +78,16 @@ const useChat = () => {
         fetchUsers();
       } catch (error) {
         console.error('Ошибка токена:', error);
-        localStorage.removeItem('token');
-        setToken(null);
-        setUserFullName(null);
+        handleLogout();
       }
     }
 
     socket.on('message', (message) => {
       console.log('Получено новое сообщение:', message);
-      const startTime = Date.now();
-      setMessages((prev) => {
-        const updatedMessages = {
-          ...prev,
-          [message.chat]: [...(prev[message.chat] || []), message].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
-        };
-        console.log(`Сообщения для ${message.chat}:`, updatedMessages[message.chat]);
-        console.log(`Время обработки сообщения: ${Date.now() - startTime} мс`);
-        if (selectedChat && selectedChat.chatId === message.chat) {
-          console.log(`Сообщение для текущего чата ${message.chat}, обновление UI`);
-        } else {
-          console.log(`Сообщение для другого чата ${message.chat}, selectedChat: ${selectedChat?.chatId}`);
-        }
-        return updatedMessages;
-      });
+      setMessages((prev) => ({
+        ...prev,
+        [message.chat]: [...(prev[message.chat] || []), message],
+      }));
     });
 
     socket.on('messageUpdated', (message) => {
@@ -140,12 +129,7 @@ const useChat = () => {
 
     socket.on('connect_error', (error) => {
       console.error('Ошибка подключения:', error.message);
-      setUser(null);
-      setUserId(null);
-      setToken(null);
-      setUserFullName(null);
-      setFiles([]);
-      localStorage.removeItem('token');
+      handleLogout();
     });
 
     return () => {
@@ -154,15 +138,14 @@ const useChat = () => {
       socket.off('messageDeleted');
       socket.off('userStatus');
       socket.off('connect_error');
-      socket.disconnect();
     };
-  }, [token, userId]);
+  }, [token]);
 
   useEffect(() => {
     if (userId && token) {
       fetchChats();
     }
-  }, [userId, token]);
+  }, [userId, token, users]);
 
   useEffect(() => {
     if (user && selectedChat) {
@@ -177,12 +160,17 @@ const useChat = () => {
       const response = await fetch(`${API_URL}/auth/users`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
       if (!response.ok) throw new Error('Не удалось загрузить пользователей');
       const data = await response.json();
       console.log('Загружены пользователи:', data);
       setUsers(data);
     } catch (error) {
       console.error('Ошибка загрузки пользователей:', error);
+      toast.error('Ошибка загрузки пользователей: ' + error.message);
       setUsers([]);
     }
   };
@@ -191,20 +179,20 @@ const useChat = () => {
     try {
       if (!userId) {
         console.error('userId не установлен, пропуск загрузки чатов');
+        toast.error('userId не установлен');
         return;
       }
       console.log(`Загрузка чатов для userId: ${userId}, userFullName: ${userFullName}`);
       const response = await fetch(`${API_URL}/chats`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
       if (!response.ok) throw new Error('Не удалось загрузить чаты');
       const data = await response.json();
       console.log('Загружены чаты:', data);
-      const groupChats = [
-        { chatId: 'Общий', type: 'group', name: 'Общий', participants: [] },
-        { chatId: 'Команда', type: 'group', name: 'Команда', participants: [] },
-        { chatId: 'Личный', type: 'group', name: 'Личный', participants: [] },
-      ];
       const enrichedChats = data.map((chat) => {
         if (chat.type === 'private') {
           const isSelfChat = chat.participants[0] === chat.participants[1];
@@ -222,29 +210,37 @@ const useChat = () => {
         }
         return chat;
       });
-      setChats([...groupChats, ...enrichedChats]);
+      setChats(enrichedChats);
+      // Автоматически выбираем первый чат, если selectedChat не установлен
+      if (enrichedChats.length > 0 && !selectedChat) {
+        setSelectedChat(enrichedChats[0]);
+      }
     } catch (error) {
       console.error('Ошибка загрузки чатов:', error);
+      toast.error('Ошибка загрузки чатов: ' + error.message);
     }
   };
 
   const fetchMessages = async (chatId) => {
     try {
       console.log(`Загрузка сообщений для чата ${chatId}`);
-      const startTime = Date.now();
       const response = await fetch(`${API_URL}/messages/${chatId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
       if (!response.ok) throw new Error('Не удалось загрузить сообщения');
       const data = await response.json();
       console.log(`Загружены сообщения для ${chatId}:`, data);
-      console.log(`Время обработки сообщения: ${Date.now() - startTime} мс`);
       setMessages((prev) => ({
         ...prev,
-        [chatId]: data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
+        [chatId]: data,
       }));
     } catch (error) {
       console.error('Ошибка загрузки сообщений:', error);
+      toast.error('Ошибка загрузки сообщений: ' + error.message);
     }
   };
 
@@ -252,6 +248,7 @@ const useChat = () => {
     try {
       if (!userId) {
         console.error('userId не установлен, невозможно создать чат');
+        toast.error('userId не установлен');
         return;
       }
       console.log(`Создание чата с userId: ${otherUserId}`);
@@ -263,8 +260,15 @@ const useChat = () => {
         },
         body: JSON.stringify({ otherUserId }),
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Не удалось создать чат');
+      }
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
       const isSelfChat = otherUserId === userId;
       let chatName;
       if (isSelfChat) {
@@ -284,7 +288,7 @@ const useChat = () => {
       fetchMessages(data.chatId);
     } catch (error) {
       console.error('Ошибка создания чата:', error);
-      alert('Ошибка создания чата: ' + error.message);
+      toast.error('Ошибка создания чата: ' + error.message);
     }
   };
 
@@ -307,20 +311,20 @@ const useChat = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      const data = await response.json();
       if (!response.ok) {
-        const errorData = await response.json();
         throw new Error(data.error || 'Ошибка сервера');
       }
-      const data = await response.json();
       setToken(data.token);
       setUser(data.username);
       setUserId(data.userId);
       setUserFullName(data.fullName || 'Неизвестный пользователь');
       localStorage.setItem('token', data.token);
       setFormData({ username: '', email: '', password: '', firstName: '', lastName: '', patronymic: '' });
+      toast.success(isLogin ? 'Успешный вход' : 'Успешная регистрация');
     } catch (error) {
       console.error(isLogin ? 'Ошибка входа:' : 'Ошибка регистрации:', error.message);
-      alert(isLogin ? 'Ошибка входа: ' + error.message : 'Ошибка регистрации: ' + error.message);
+      toast.error(isLogin ? 'Ошибка входа: ' + error.message : 'Ошибка регистрации: ' + error.message);
     }
   };
 
@@ -343,7 +347,7 @@ const useChat = () => {
     setUserFullName(null);
     setMessages({});
     setChats([]);
-    setSelectedChat({ chatId: 'Общий', type: 'group', name: 'Общий', participants: [] });
+    setSelectedChat(null);
     setForwardMessage(null);
     setEditingMessage(null);
     setSelectedMessages([]);
@@ -351,6 +355,7 @@ const useChat = () => {
     localStorage.removeItem('token');
     socket.disconnect();
     console.log('Пользователь вышел');
+    toast.info('Вы вышли из аккаунта');
   };
 
   const handleMessageClick = (message) => {
@@ -378,7 +383,7 @@ const useChat = () => {
 
   const handleSaveEdit = async () => {
     if (!editingMessage || !input.trim()) {
-      alert('Введите текст для редактирования');
+      toast.error('Введите текст для редактирования');
       setInput('');
       if (inputRef.current) inputRef.current.innerText = '';
       setEditingMessage(null);
@@ -394,9 +399,13 @@ const useChat = () => {
         },
         body: JSON.stringify({ text: input }),
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Не удалось отредактировать сообщение');
+        throw new Error(data.error || 'Не удалось отредактировать сообщение');
       }
       const updatedMessage = await response.json();
       setMessages((prev) => ({
@@ -408,9 +417,10 @@ const useChat = () => {
       setInput('');
       setEditingMessage(null);
       if (inputRef.current) inputRef.current.innerText = '';
+      toast.success('Сообщение успешно отредактировано');
     } catch (error) {
       console.error('Ошибка редактирования:', error);
-      alert('Ошибка редактирования: ' + error.message);
+      toast.error('Ошибка редактирования: ' + error.message);
     }
   };
 
@@ -429,13 +439,18 @@ const useChat = () => {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        throw new Error('Токен недействителен');
+      }
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Не удалось удалить сообщение');
+        throw new Error(data.error || 'Не удалось удалить сообщение');
       }
+      toast.success('Сообщение успешно удалено');
     } catch (error) {
       console.error('Ошибка удаления:', error);
-      alert('Ошибка удаления: ' + error.message);
+      toast.error('Ошибка удаления: ' + error.message);
     }
     setContextMenu({ visible: false, x: 0, y: 0, message: null });
   };
@@ -475,17 +490,22 @@ const useChat = () => {
           },
           body: JSON.stringify({ messageId: message._id, targetChatId }),
         });
+        if (response.status === 401 || response.status === 403) {
+          handleLogout();
+          throw new Error('Токен недействителен');
+        }
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || 'Не удалось переслать сообщение');
+          throw new Error(data.error || 'Не удалось переслать сообщение');
         }
       }
       setShowForwardModal(false);
       setForwardMessage(null);
       setSelectedMessages([]);
+      toast.success('Сообщение успешно переслано');
     } catch (error) {
       console.error('Ошибка пересылки:', error);
-      alert('Ошибка пересылки: ' + error.message);
+      toast.error('Ошибка пересылки: ' + error.message);
     }
   };
 
@@ -536,34 +556,22 @@ const useChat = () => {
             },
             body: formData,
           });
+          if (response.status === 401 || response.status === 403) {
+            handleLogout();
+            throw new Error('Токен недействителен');
+          }
           if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.error || 'Не удалось загрузить файлы');
+            throw new Error(data.error || 'Не удалось загрузить файлы');
           }
-          const data = await response.json();
-          console.log('Файлы загружены, URLs:', data.fileUrls);
-          const message = {
-            username: user,
-            chat: selectedChat.chatId,
-            text: input,
-            type: 'file',
-            files: data.fileUrls.map((url, index) => ({
-              name: files[index].name,
-              size: files[index].size,
-              type: files[index].type,
-              url: `${API_URL}${url}`,
-            })),
-            fullName: userFullName || 'Неизвестный пользователь',
-            timestamp: new Date().toISOString(),
-          };
-          socket.emit('message', message);
           setFiles([]);
           setInput('');
           if (inputRef.current) inputRef.current.innerText = '';
           if (fileInputRef.current) fileInputRef.current.value = '';
+          toast.success('Файлы успешно загружены');
         } catch (error) {
           console.error('Ошибка загрузки файлов:', error);
-          alert('Ошибка загрузки файлов: ' + error.message);
+          toast.error('Ошибка загрузки файлов: ' + error.message);
         }
       } else {
         const message = {
@@ -590,30 +598,17 @@ const useChat = () => {
   };
 
   const handleInput = (e) => {
-    setInput(e.target.innerText);
+    setInput(e.target.value);
   };
 
   const handleEmojiClick = (emojiObject) => {
-    console.log('Выбран смайлик:', emojiObject);
-    if (inputRef.current) {
-      const emoji = emojiObject.emoji || '';
-      const selection = window.getSelection();
-      if (selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(document.createTextNode(emoji));
-        range.setStartAfter(inputRef.current.lastChild || inputRef.current);
-        range.setEndAfter(inputRef.current.lastChild || inputRef.current);
-        selection.removeAllRanges();
-        selection.addRange(range);
-        setInput(inputRef.current.innerText);
-      } else {
-        console.warn('Нет активного выделения для вставки смайлика');
-        inputRef.current.innerText += emoji;
-        setInput(inputRef.current.innerText);
-      }
-    }
-  };
+  console.log('Выбран смайлик:', emojiObject);
+  const emoji = emojiObject.emoji || '';
+  setInput((prev) => prev + emoji);
+  if (inputRef.current) {
+    inputRef.current.focus();
+  }
+};
 
   const handleSendButtonMouseDown = () => {
     setIsSendButtonPressed(true);

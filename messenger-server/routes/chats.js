@@ -1,3 +1,4 @@
+// routes/chats.js
 const express = require('express');
 const router = express.Router();
 const Chat = require('../models/chat');
@@ -18,7 +19,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, async (req, res) => {
-  console.log('POST /create-chat');
+  console.log('POST /chats');
   try {
     const { otherUserId } = req.body;
     const user = await User.findOne({ userId: otherUserId });
@@ -34,9 +35,7 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.json(existingChat);
     }
     const chat = new Chat({
-      chatId: uuidv4(),
       participants: [req.user.userId, otherUserId],
-      type: 'private',
     });
     await chat.save();
     console.log('Создан новый чат:', chat);

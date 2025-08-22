@@ -1,10 +1,9 @@
+// models/user.js
 const mongoose = require('mongoose');
-const { customAlphabet } = require('nanoid');
-
-const nanoid = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 5);
+const { v4: uuidv4 } = require('uuid'); // Используем uuid
 
 const userSchema = new mongoose.Schema({
-  userId: { type: String, unique: true, default: () => nanoid() },
+  userId: { type: String, unique: true, default: uuidv4 },
   username: String,
   email: String,
   password: String,

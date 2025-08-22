@@ -1,8 +1,13 @@
+// routes/auth.js
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
+const { authenticateToken } = require('../middleware/auth'); // Добавили для /users
+const { v4: uuidv4 } = require('uuid');
 const router = express.Router();
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
 
 router.post('/register', async (req, res) => {
   console.log('POST /auth/register');
@@ -20,14 +25,13 @@ router.post('/register', async (req, res) => {
       firstName,
       lastName,
       patronymic,
-      userId: require('uuid').v4(),
       fullName: `${firstName} ${lastName} ${patronymic}`.trim(),
     });
     await user.save();
     console.log('Пользователь зарегистрирован:', user);
     const token = jwt.sign(
       { username: user.username, userId: user.userId, fullName: user.fullName },
-      'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '1h' }
     );
     res.json({ token, username: user.username, userId: user.userId, fullName: user.fullName });
@@ -51,7 +55,7 @@ router.post('/login', async (req, res) => {
     }
     const token = jwt.sign(
       { username: user.username, userId: user.userId, fullName: user.fullName },
-      'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '1h' }
     );
     console.log('Пользователь вошёл:', user);
@@ -67,7 +71,7 @@ router.post('/logout', (req, res) => {
   res.status(200).send();
 });
 
-router.get('/users', async (req, res) => {
+router.get('/users', authenticateToken, async (req, res) => { // Добавили auth
   console.log('GET /auth/users');
   try {
     const users = await User.find({}, 'userId username fullName email status');

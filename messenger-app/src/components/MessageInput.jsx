@@ -71,7 +71,7 @@ const MessageInput = ({
 
   useEffect(() => {
     if (editingMessage && inputRef.current) {
-      inputRef.current.innerText = editingMessage.text;
+      inputRef.current.value = editingMessage.text;
       inputRef.current.focus();
     }
   }, [editingMessage]);
@@ -114,14 +114,13 @@ const MessageInput = ({
           onChange={handleFileChange}
           className="hidden"
         />
-        <div
+        <textarea
           ref={inputRef}
-          contentEditable
-          className="flex-1 p-2 border rounded-lg min-h-[40px] max-h-[50px] overflow-y-auto focus:outline-none"
-          onInput={handleInput}
+          value={input}
+          onChange={handleInput}
           onKeyDown={handleKeyDown}
+          className="flex-1 p-2 border rounded-lg min-h-[40px] max-h-[100px] overflow-y-auto focus:outline-none"
           placeholder="Введите сообщение..."
-          style={{ whiteSpace: 'pre-wrap' }}
         />
         <button
           ref={emojiButtonRef}
